@@ -84,6 +84,15 @@ document.querySelectorAll('.tab').forEach(b=>b.addEventListener('click',()=>{doc
  persist=function(){localStorage.setItem(KEY,JSON.stringify(state));renderAll();if(userRole==='parent') {status.textContent='正在同步…';clearTimeout(saveTimer);saveTimer=setTimeout(syncNow,350);}};
  form.addEventListener('submit',async e=>{e.preventDefault();err.textContent='';btn.disabled=true;btn.textContent='正在登录…';try{const {error}=await sb.auth.signInWithPassword({email:document.getElementById('cloudEmail').value.trim(),password:document.getElementById('cloudPassword').value});if(error)throw error;await loadCloud();}catch(ex){err.textContent=ex.message||'登录失败';await sb.auth.signOut().catch(()=>{});}finally{btn.disabled=false;btn.textContent='登录星星成长岛';}});
  const parentEntry = new URLSearchParams(location.search).get('parent') === '1';
+ if(parentEntry){
+  sb.auth.getSession().then(async({data})=>{
+    if(data.session && data.session.user.is_anonymous){
+      await sb.auth.signOut();
+    }
+    gate.style.display='flex';
+    status.textContent='家长管理入口：请输入家长账号邮箱和密码。';
+  });
+  return;}
  sb.auth.getSession().then(async({data,error})=>{
    if(error){err.textContent=error.message;return;}
    if(data.session && parentEntry && data.session.user && data.session.user.is_anonymous){
