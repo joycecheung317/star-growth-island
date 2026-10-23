@@ -6,7 +6,7 @@
 <style>
 #cloudGate{position:fixed;inset:0;z-index:1000;background:linear-gradient(135deg,#f4efff,#fff8f0 55%,#eefcf7);display:flex;align-items:center;justify-content:center;padding:20px}#cloudGate .gatecard{width:min(430px,100%);background:#fffdf8;border:1px solid #eee8ff;border-radius:24px;padding:24px;box-shadow:0 20px 70px #26194e22}#cloudGate h2{margin:0 0 8px}#cloudGate .field{margin:12px 0}#cloudGate input{width:100%}#cloudGate .gateerror{color:#c53d67;font-size:13px;min-height:18px}#cloudStatus{font-size:12px;color:#6652a6;margin-top:10px}
 </style></head><body>
-<div id="cloudGate"><div class="gatecard"><h2>✨ 星星成长岛 · 家庭共享</h2><p class="sub">请使用家长或学生账号登录。数据会同步到家庭云端。</p><form id="cloudLogin"><div class="field"><label for="cloudEmail">邮箱</label><input id="cloudEmail" type="email" autocomplete="username" required placeholder="已创建的账号邮箱"></div><div class="field"><label for="cloudPassword">密码</label><input id="cloudPassword" type="password" autocomplete="current-password" required placeholder="账号密码"></div><button type="submit" id="cloudLoginBtn" style="width:100%">登录星星成长岛</button></form><div class="gateerror" id="cloudError"></div><div class="notice">账号由家长在云端后台创建，不开放自行注册。学生账号只能查看，家长账号可以共同记录。</div><div id="cloudStatus">若尚未配置云端，请先按安装说明完成 Supabase 配置。</div></div></div>
+<div id="cloudGate"><div class="gatecard"><h2>✨ 星星成长岛 · 家庭共享</h2><p class="sub">家长请登录管理账号；孩子端打开普通网址即可只读查看。</p><form id="cloudLogin"><div class="field"><label for="cloudEmail">邮箱</label><input id="cloudEmail" type="email" autocomplete="username" required placeholder="已创建的账号邮箱"></div><div class="field"><label for="cloudPassword">密码</label><input id="cloudPassword" type="password" autocomplete="current-password" required placeholder="账号密码"></div><button type="submit" id="cloudLoginBtn" style="width:100%">登录星星成长岛</button></form><div class="gateerror" id="cloudError"></div><div class="notice">家长管理入口：请使用网址末尾的 <b>?parent=1</b>。孩子打开普通网址即可免密码只读查看。</div><div id="cloudStatus">若尚未配置云端，请先按安装说明完成 Supabase 配置。</div></div></div>
 <div class="wrap">
 <header class="hero"><h1>✨ 星星成长岛</h1><p>每天一点点努力，积攒自己的星星宝藏！</p><div class="hero-stats"><div class="pillstat"><span>🌟 当前可用星星</span><strong id="totalStars">0</strong></div><div class="pillstat"><span>🏅 称号等级</span><strong id="levelTop">Lv. 0</strong></div><div class="pillstat"><span>🗓️ 本周已记录</span><strong id="daysTop">0 天</strong></div></div></header>
 <nav class="tabs"><button class="tab active" data-tab="daily">📝 每日记分</button><button class="tab" data-tab="growth">🌱 我的成长</button><button class="tab" data-tab="weekly">📊 每周统计</button><button class="tab" data-tab="redeem">🎁 星星宝箱</button><button class="tab parent-only" data-tab="settings">⚙️ 设置与备份</button></nav>
@@ -83,7 +83,31 @@ document.querySelectorAll('.tab').forEach(b=>b.addEventListener('click',()=>{doc
  // Replace local-only persistence with local cache plus cloud sync. Database policies still enforce student read-only.
  persist=function(){localStorage.setItem(KEY,JSON.stringify(state));renderAll();if(userRole==='parent') {status.textContent='正在同步…';clearTimeout(saveTimer);saveTimer=setTimeout(syncNow,350);}};
  form.addEventListener('submit',async e=>{e.preventDefault();err.textContent='';btn.disabled=true;btn.textContent='正在登录…';try{const {error}=await sb.auth.signInWithPassword({email:document.getElementById('cloudEmail').value.trim(),password:document.getElementById('cloudPassword').value});if(error)throw error;await loadCloud();}catch(ex){err.textContent=ex.message||'登录失败';await sb.auth.signOut().catch(()=>{});}finally{btn.disabled=false;btn.textContent='登录星星成长岛';}});
- sb.auth.getSession().then(async({data,error})=>{if(error){err.textContent=error.message;return}if(data.session){try{await loadCloud()}catch(ex){err.textContent=ex.message;await sb.auth.signOut()}}});
+ const parentEntry = new URLSearchParams(location.search).get('parent') === '1';
+ sb.auth.getSession().then(async({data,error})=>{
+   if(error){err.textContent=error.message;return;}
+   if(data.session && parentEntry && data.session.user && data.session.user.is_anonymous){
+     await sb.auth.signOut();
+     gate.style.display='flex';
+     status.textContent='家长管理入口：请输入家长账号邮箱和密码。';
+   } else if(data.session){
+     try{await loadCloud();}
+     catch(ex){
+       // A stale anonymous session may not have a profile if the setup trigger was added later.
+       if(data.session.user && data.session.user.is_anonymous){
+         await sb.auth.signOut();
+         if(parentEntry){gate.style.display='flex';status.textContent='请使用家长账号登录。';}
+         else { try { const {error:ae}=await sb.auth.signInAnonymously(); if(ae)throw ae; await loadCloud(); } catch(ae){gate.style.display='flex';err.textContent='学生免登录初始化失败：'+(ae.message||ae)+'。请确认已启用 Anonymous Sign-Ins 并运行新版 SQL。';} }
+       } else { err.textContent=ex.message||'登录失败'; }
+     }
+   } else if(parentEntry){
+     gate.style.display='flex';
+     status.textContent='家长管理入口：请输入家长账号邮箱和密码。';
+   } else {
+     try { const {error:ae}=await sb.auth.signInAnonymously(); if(ae)throw ae; await loadCloud(); }
+     catch(ae){ gate.style.display='flex'; err.textContent='学生免登录初始化失败：'+(ae.message||ae)+'。请确认已启用 Anonymous Sign-Ins 并运行新版 SQL。'; }
+   }
+ });
  // Pull remote changes periodically so family members see updates on their phones.
  setInterval(async()=>{if(!sb||!userRole||gate.style.display!=='none')return;try{const {data,error}=await sb.from('app_state').select('data,updated_at').eq('id','family').single();if(error||!data||!data.updated_at||data.updated_at===lastCloudStamp)return;lastCloudStamp=data.updated_at;const localStamp=localStorage.getItem(KEY);if(localStamp){state={...fresh(),...data.data};state.settings={flashThreshold:2,thanosThreshold:2,ninjaThreshold:1,superThreshold:1,...(state.settings||{})};state.rewards=state.rewards||[];localStorage.setItem(KEY,JSON.stringify(state));renderDaily();renderAll();}status.textContent='☁️ 已接收家庭最新记录';}catch(e){console.warn(e)}},12000);
 })();
